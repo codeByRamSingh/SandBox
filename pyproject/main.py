@@ -15,10 +15,10 @@ conn = psycopg2.connect(
     user="postgres",
     password="Adi@1989"
 )
-cur = conn.cursor()
+db = conn.cursor()
 
 # Create table if not exists
-cur.execute("""
+db.execute("""
 CREATE TABLE IF NOT EXISTS individuals (
     id SERIAL PRIMARY KEY,
     first_name VARCHAR(50),
@@ -29,13 +29,13 @@ CREATE TABLE IF NOT EXISTS individuals (
 """)
 
 # Insert data
-cur.execute("""
+db.execute("""
 INSERT INTO individuals (first_name, last_name, phone, email)
 VALUES (%s, %s, %s, %s)
 """, (first_name, last_name, phone, email))
 
 conn.commit()
-cur.close()
+db.close()
 conn.close()
 
 print("Data saved to individuals table.")
