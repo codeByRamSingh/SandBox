@@ -1,41 +1,14 @@
-print ("Hello world");
+import subprocess
 
-import psycopg2
+print("Choose an option:")
+print("1. Individual entry")
+print("2. Admission")
 
-# Collect user input
-first_name = input("Enter first name: ")
-last_name = input("Enter last name: ")
-phone = input("Enter phone: ")
-email = input("Enter email address: ")
+choice = input("Enter your choice (1 or 2): ")
 
-# Connect to PostgreSQL
-conn = psycopg2.connect(
-    host="localhost",
-    database="sandbox",
-    user="postgres",
-    password="Adi@1989"
-)
-connection = conn.cursor()
-
-# Create table if not exists
-connection.execute("""
-CREATE TABLE IF NOT EXISTS individuals (
-    id SERIAL PRIMARY KEY,
-    first_name VARCHAR(50),
-    last_name VARCHAR(50),
-    phone VARCHAR(20),
-    email VARCHAR(100)
-)
-""")
-
-# Insert data
-connection.execute("""
-INSERT INTO individuals (first_name, last_name, phone, email)
-VALUES (%s, %s, %s, %s)
-""", (first_name, last_name, phone, email))
-
-conn.commit()
-connection.close()
-conn.close()
-
-print("Data saved to individuals table.")
+if choice == "1":
+    subprocess.run(["python", "pyproject/individuals.py"])
+elif choice == "2":
+    print("Admission option selected. (Functionality not implemented yet)")
+else:
+    print("Invalid choice.")
