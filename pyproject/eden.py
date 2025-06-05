@@ -1,75 +1,77 @@
 import time
-import random  # Simulate sensor data (replace with actual IoT sensors)
+import random  # Simulate sensor data
 import psycopg2
 from psycopg2 import OperationalError
 from datetime import datetime
+from flask import Flask, render_template, request, redirect, url_for, flash
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+import threading
 
-# Simulated sensor data class (replace with actual IoT sensor integration)
+# Flask app setup
+app = Flask(__name__)
+app.secret_key = 'your_secret_key_eden'  # Replace with a secure key in production
+
+# Flask-Login setup
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# User class for Flask-Login
+class User(UserMixin):
+    def __init__(self, id, username):
+        self.id = id
+        self.username = username
+
+# Simulated sensor data class
 class FarmSensors:
     def __init__(self):
-        self.min_soil_moisture = 30  # Threshold for irrigation
-        self.min_water_level = 100   # Liters, threshold for water tank
-        self.min_energy_level = 100  # Watts, threshold for energy alert
+        self.min_soil_moisture = 30
+        self.min_water_level = 100
+        self.min_energy_level = 100
 
     def get_sensor_data(self):
-        """Simulate sensor readings for soil moisture, temperature, water, and energy."""
         return {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "soil_moisture": random.randint(0, 100),      # Percentage
-            "temperature": random.uniform(15, 35),        # Celsius
-            "water_level": random.randint(0, 1000),       # Liters
-            "energy_level": random.uniform(0, 500)        # Watts from solar panels
+            "soil_moisture": random.randint(0, 100),
+            "temperature": random.uniform(15, 35),
+            "water_level": random.randint(0, 1000),
+            "energy_level": random.uniform(0, 500)
         }
 
 # Livestock management class
 class LivestockManager:
     def __init__(self, logger):
         self.logger = logger
-        self.min_feed_level = 5  # Minimum feed level (kg) per animal
-        self.min_water_per_animal = 10  # Minimum water (liters) per animal per day
+        self.min_feed_level = 5
+        self.min_water_per_animal = 10
 
     def get_livestock_data(self):
-        """Simulate livestock data (replace with actual data collection)."""
-        # Simulate 5 chickens for now
         return [
-            {"id": 1, "type": "Chicken", "feed_level": random.uniform(0, 10), "water_consumed": random.uniform(0, 15)},
-            {"id": 2, "type": "Chicken", "feed_level": random.uniform(0, 10), "water_consumed": random.uniform(0, 15)},
-            {"id": 3, "type": "Chicken", "feed_level": random.uniform(0, 10), "water_consumed": random.uniform(0, 15)},
-            {"id": 4, "type": "Chicken", "feed_level": random.uniform(0, 10), "water_consumed": random.uniform(0, 15)},
-            {"id": 5, "type": "Chicken", "feed_level": random.uniform(0, 10), "water_consumed": random.uniform(0, 15)}
+            {"id": i, "type": "Chicken", "feed_level": random.uniform(0, 10), "water_consumed": random.uniform(0, 15)}
+            for i in range(1, 6)
         ]
 
     def manage_livestock(self, livestock_data, farm_water_level, timestamp):
-        """Make decisions for livestock management."""
         actions = []
         total_water_needed = 0
-
         for animal in livestock_data:
-            # Check feed level
             if animal["feed_level"] < self.min_feed_level:
                 actions.append(f"Refill feed for {animal['type']} ID {animal['id']}: Feed level {animal['feed_level']:.1f}kg below minimum.")
-                # Placeholder for actual feed refill
-            # Check water consumption
             if animal["water_consumed"] < self.min_water_per_animal:
                 water_needed = self.min_water_per_animal - animal["water_consumed"]
                 total_water_needed += water_needed
                 actions.append(f"Provide {water_needed:.1f}L water to {animal['type']} ID {animal['id']}: Consumed only {animal['water_consumed']:.1f}L.")
-
-            # Log livestock data
             self.logger.save_livestock_data(animal, timestamp)
-
-        # Check if there's enough water for livestock
         if total_water_needed > farm_water_level:
             actions.append(f"Warning: Not enough water for livestock. Need {total_water_needed:.1f}L, available {farm_water_level}L.")
         elif total_water_needed > 0:
-            # Deduct water from farm's water level (simulated deduction)
             actions.append(f"Allocated {total_water_needed:.1f}L water to livestock.")
-
         return actions, total_water_needed
 
 # Data logging class using PostgreSQL
 class DataLogger:
-    def __init__(self, db_name="eden_db", user="eden_user", password="your_secure_password", host="localhost", port="5432"):
+    def __init__(self, db_name="eden_db", user="eden_user", password="Eden@2025!", host="localhost", port="5432"):
         self.db_name = db_name
         self.user = user
         self.password = password
@@ -80,7 +82,6 @@ class DataLogger:
         self.create_tables()
 
     def connect(self):
-        """Connect to PostgreSQL database."""
         try:
             self.conn = psycopg2.connect(
                 dbname=self.db_name,
@@ -95,7 +96,6 @@ class DataLogger:
             raise
 
     def create_tables(self):
-        """Create tables for sensor data, actions, and livestock data."""
         cursor = self.conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sensor_data (
@@ -124,11 +124,27 @@ class DataLogger:
                 water_consumed REAL
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL
+            )
+        """)
         self.conn.commit()
+        # Create a default user if not exists
+        try:
+            cursor.execute("""
+                INSERT INTO users (username, password_hash)
+                VALUES (%s, %s)
+                ON CONFLICT (username) DO NOTHING
+            """, ('admin', generate_password_hash('EdenAdmin2025!')))
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error creating default user: {e}")
         cursor.close()
 
     def save_sensor_data(self, sensor_data):
-        """Save sensor data to PostgreSQL database."""
         cursor = self.conn.cursor()
         cursor.execute("""
             INSERT INTO sensor_data (timestamp, soil_moisture, temperature, water_level, energy_level)
@@ -139,14 +155,12 @@ class DataLogger:
         cursor.close()
 
     def save_action(self, timestamp, action):
-        """Save AI actions to PostgreSQL database."""
         cursor = self.conn.cursor()
         cursor.execute("INSERT INTO actions (timestamp, action) VALUES (%s, %s)", (timestamp, action))
         self.conn.commit()
         cursor.close()
 
     def save_livestock_data(self, animal, timestamp):
-        """Save livestock data to PostgreSQL database."""
         cursor = self.conn.cursor()
         cursor.execute("""
             INSERT INTO livestock_data (timestamp, animal_id, animal_type, feed_level, water_consumed)
@@ -156,7 +170,6 @@ class DataLogger:
         cursor.close()
 
     def get_average_soil_moisture(self, hours=24):
-        """Get average soil moisture over the last specified hours."""
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT AVG(soil_moisture)
@@ -168,7 +181,6 @@ class DataLogger:
         return result if result else 0
 
     def get_average_temperature(self, hours=24):
-        """Get average temperature over the last specified hours."""
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT AVG(temperature)
@@ -179,8 +191,75 @@ class DataLogger:
         cursor.close()
         return result if result else 0
 
+    def get_soil_moisture_trend(self, hours=24):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT timestamp, soil_moisture
+            FROM sensor_data
+            WHERE timestamp >= (NOW() - INTERVAL '%s hours')::TEXT
+            ORDER BY timestamp ASC
+        """, (hours,))
+        results = cursor.fetchall()
+        cursor.close()
+        return [{"timestamp": r[0], "soil_moisture": r[1]} for r in results]
+
+    def get_latest_sensor_data(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1")
+        result = cursor.fetchone()
+        cursor.close()
+        if result:
+            return {
+                "timestamp": result[1],
+                "soil_moisture": result[2],
+                "temperature": result[3],
+                "water_level": result[4],
+                "energy_level": result[5]
+            }
+        return None
+
+    def get_latest_livestock_data(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT DISTINCT ON (animal_id) * FROM livestock_data ORDER BY animal_id, id DESC")
+        results = cursor.fetchall()
+        cursor.close()
+        return [
+            {"id": r[2], "type": r[3], "feed_level": r[4], "water_consumed": r[5]}
+            for r in results
+        ]
+
+    def get_latest_actions(self, limit=10):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT timestamp, action FROM actions ORDER BY id DESC LIMIT %s", (limit,))
+        results = cursor.fetchall()
+        cursor.close()
+        return [{"timestamp": r[0], "action": r[1]} for r in results]
+
+    def get_user_by_username(self, username):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, username, password_hash FROM users WHERE username = %s", (username,))
+        result = cursor.fetchone()
+        cursor.close()
+        return result
+
+    def create_user(self, username, password):
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO users (username, password_hash)
+                VALUES (%s, %s)
+                RETURNING id
+            """, (username, generate_password_hash(password)))
+            user_id = cursor.fetchone()[0]
+            self.conn.commit()
+            return user_id
+        except psycopg2.IntegrityError:
+            self.conn.rollback()
+            return None
+        finally:
+            cursor.close()
+
     def close(self):
-        """Close the database connection."""
         if self.conn:
             self.conn.close()
             print("PostgreSQL connection closed.")
@@ -191,68 +270,47 @@ class EdenAI:
         self.sensors = FarmSensors()
         self.logger = DataLogger()
         self.livestock = LivestockManager(self.logger)
+        self.latest_data = None
 
     def make_decisions(self, sensor_data):
-        """Make AI decisions based on sensor data."""
         actions = []
-
-        # Decision 1: Irrigation
         if sensor_data["soil_moisture"] < self.sensors.min_soil_moisture:
             if sensor_data["water_level"] > self.sensors.min_water_level:
                 actions.append("Irrigate: Soil moisture too low.")
-                # Placeholder for actual irrigation control
             else:
                 actions.append("Cannot irrigate: Low water level.")
-
-        # Decision 2: Water management
         if sensor_data["water_level"] < self.sensors.min_water_level:
             actions.append("Refill water tank: Low water level.")
-            # Placeholder for water recycling system activation
-
-        # Decision 3: Energy management
         if sensor_data["energy_level"] < self.sensors.min_energy_level:
             actions.append("Switch to backup power: Low energy level.")
-            # Placeholder for energy system control
-
-        # Decision 4: Temperature alert (for crop health)
         if sensor_data["temperature"] > 30:
             actions.append("High temperature alert: Check crop health.")
-
         return actions
 
     def run(self):
-        """Main loop for Eden AI."""
         print("Starting Eden AI for Self-Sustainable Farm...")
         try:
             while True:
-                # Collect sensor data
                 sensor_data = self.sensors.get_sensor_data()
-                
-                # Make farm decisions
                 farm_actions = self.make_decisions(sensor_data)
-                
-                # Manage livestock
                 livestock_data = self.livestock.get_livestock_data()
                 livestock_actions, water_used = self.livestock.manage_livestock(livestock_data, sensor_data["water_level"], sensor_data["timestamp"])
-                
-                # Combine actions
                 all_actions = farm_actions + livestock_actions
-                
-                # Log sensor data and actions
                 self.logger.save_sensor_data(sensor_data)
                 for action in all_actions:
                     self.logger.save_action(sensor_data["timestamp"], action)
-                
-                # Get historical analysis
-                avg_soil_moisture = self.logger.get_average_soil_moisture(hours=24)
-                avg_temperature = self.logger.get_average_temperature(hours=24)
-                
-                # Display current status
+                self.latest_data = {
+                    "sensor_data": sensor_data,
+                    "livestock_data": livestock_data,
+                    "actions": all_actions,
+                    "avg_soil_moisture": self.logger.get_average_soil_moisture(),
+                    "avg_temperature": self.logger.get_average_temperature(),
+                    "soil_moisture_trend": self.logger.get_soil_moisture_trend()
+                }
                 print("\nEden Status Report:")
                 print(f"Timestamp: {sensor_data['timestamp']}")
-                print("Farm Status:")
-                print(f"Soil Moisture: {sensor_data['soil_moisture']}% (24h Avg: {avg_soil_moisture:.1f}%)")
-                print(f"Temperature: {sensor_data['temperature']:.1f}°C (24h Avg: {avg_temperature:.1f}°C)")
+                print(f"Soil Moisture: {sensor_data['soil_moisture']}% (24h Avg: {self.latest_data['avg_soil_moisture']:.1f}%)")
+                print(f"Temperature: {sensor_data['temperature']:.1f}°C (24h Avg: {self.latest_data['avg_temperature']:.1f}°C)")
                 print(f"Water Level: {sensor_data['water_level']}L")
                 print(f"Energy Level: {sensor_data['energy_level']:.1f}W")
                 print("\nLivestock Status:")
@@ -264,13 +322,83 @@ class EdenAI:
                         print(f"- {action}")
                 else:
                     print("- No actions taken.")
-                
-                time.sleep(300)  # Check every 5 minutes
+                time.sleep(300)
         except KeyboardInterrupt:
             print("\nStopping Eden AI...")
             self.logger.close()
 
+# Flask-Login user loader
+@login_manager.user_loader
+def load_user(user_id):
+    return User(user_id, f"user_{user_id}")
+
+# Flask routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user_data = eden.logger.get_user_by_username(username)
+        if user_data and check_password_hash(user_data[2], password):
+            user = User(user_data[0], user_data[1])
+            login_user(user)
+            flash('Logged in successfully.', 'success')
+            return redirect(url_for('dashboard'))
+        flash('Invalid username or password.', 'error')
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        if len(password) < 8:
+            flash('Password must be at least 8 characters long.', 'error')
+            return render_template('register.html')
+        user_id = eden.logger.create_user(username, password)
+        if user_id:
+            flash('Registration successful! Please log in.', 'success')
+            return redirect(url_for('login'))
+        flash('Username already exists.', 'error')
+    return render_template('register.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('Logged out successfully.', 'success')
+    return redirect(url_for('login'))
+
+@app.route('/')
+@login_required
+def dashboard():
+    if eden.latest_data:
+        return render_template('dashboard.html', data=eden.latest_data)
+    else:
+        latest_sensor_data = eden.logger.get_latest_sensor_data()
+        latest_livestock_data = eden.logger.get_latest_livestock_data()
+        latest_actions = eden.logger.get_latest_actions()
+        avg_soil_moisture = eden.logger.get_average_soil_moisture()
+        avg_temperature = eden.logger.get_average_temperature()
+        soil_moisture_trend = eden.logger.get_soil_moisture_trend()
+        data = {
+            "sensor_data": latest_sensor_data if latest_sensor_data else {},
+            "livestock_data": latest_livestock_data,
+            "actions": latest_actions,
+            "avg_soil_moisture": avg_soil_moisture,
+            "avg_temperature": avg_temperature,
+            "soil_moisture_trend": soil_moisture_trend
+        }
+        return render_template('dashboard.html', data=data)
+
 # Main entry point
 if __name__ == "__main__":
     eden = EdenAI()
-    eden.run()
+    ai_thread = threading.Thread(target=eden.run)
+    ai_thread.daemon = True
+    ai_thread.start()
+    app.run(host='0.0.0.0', port=5000)
